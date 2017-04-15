@@ -1,0 +1,5 @@
+[Master]
+init-hook='import sys; sys.path.append("/home/pjones/devel/github.com/terminal/terminal/")'
+
+[messages control]
+disable=C0103,R0902,R0904,R0913
