@@ -9,9 +9,11 @@ This is the top level __init__.py for terminal
 """
 
 from .serial import SerialPort
+from .terminal import Terminal
 
 __all__ = [
     "SerialPort",
+    "Terminal",
 ]
 
 # -*- coding: utf-8 -*-
