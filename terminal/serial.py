@@ -10,8 +10,8 @@ This module provides abstractions for talking to serial ports.
 import array
 from ctypes import c_uint, c_ubyte, Structure
 import fcntl
-import sys
 import os
+import pty
 import tty
 import termios
 
@@ -187,43 +187,61 @@ class SerialPort():
         4000000:termios.B4000000,
         }
 
-    def __init__(self, settings, name):
-        self.settings = settings
-        self.name = name
-
-        #print("tty_path: %s tty_speed: %s" % (self.tty_path, self.tty_speed))
-        if self.tty_path and self.tty_path != '-':
-            self.filedes = os.open(self.tty_path, os.O_RDWR)
+    def __init__(self, name, use_pty=False):
+        if name == "-":
+            self.name = "/dev/stdin"
         else:
-            self.filedes = os.open(sys.stdin.fileno(), os.O_RDWR)
-        self.device = os.fdopen(self.filedes, "w+b", buffering=0)
-
+            self.name = name
+        self.filedes = None
+        self.device = None
         self.termios = Termios2()
+        self._master_tty_path = None
+        self._master_pty = None
+        self._slave_tty_path = None
+        self._slave_pty = None
+        self.pty = use_pty
 
-        self.set_speed(self.tty_speed)
+        self._open()
+
+    @property
+    def filedes(self):
+        """ the file descriptor we should be doing i/o to """
+        return self._master_pty
+
+    def _open(self):
+        """ Open our terminal and set it up as self.device / self.filedes """
+        #print("tty_path: %s tty_speed: %s" % (self.tty_path, self.tty_speed))
+        if self._master_tty_path is None:
+            if self.pty:
+                master, slave = pty.openpty()
+                self._master_pty = master
+                self._slave_pty = slave
+                self._master_tty_path = os.readlink("/proc/self/fd/%d" %
+                                                    (master,))
+                self._slave_tty_path = os.readlink("/proc/self/fd/%d" %
+                                                   (slave,))
+            else:
+                self._master_tty_path = self.name
+                self._master_pty = os.open(self.name, os.O_RDWR)
+
+        self.device = os.fdopen(self.filedes, "w+b", buffering=0)
 
     @property
     def tty_path(self):
         """ get the path for the tty device node """
 
-        name = '%s_tty' % (self.name,)
-        return getattr(self.settings, name)
+        return self._master_tty_path
 
     @property
-    def tty_speed(self):
-        """ Get the tty's current configured speed """
-
-        speed = '%s_tty_speed' % (self.name,)
-        return getattr(self.settings, speed)
-
-    @property
-    def tty_allocate(self):
-        """ Get the allocate property for the tty """
-        allocate = '%s_tty_allocate' % (self.name,)
-        return getattr(self.settings, allocate)
+    def pty_path(self):
+        """ Return the slave pty path if this is a pty """
+        return self._slave_tty_path
 
     def set_speed(self, speed):
         """ Set the speed """
+
+        if self.pty:
+            return
 
         ifound = False
         ofound = False

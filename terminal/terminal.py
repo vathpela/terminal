@@ -16,9 +16,9 @@ from .serial import SerialPort
 class Terminal(SerialPort):
     """ This provides a terminal we can write to """
 
-    def __init__(self, settings, name):
-        print("[Terminal %s].__init__(settings=%s)" % (name, settings))
-        SerialPort.__init__(self, settings, name)
+    def __init__(self, name):
+        print("[Terminal %s].__init__(name=\"%s\")" % (name))
+        SerialPort.__init__(self, name)
 
         self.count = 0
 
