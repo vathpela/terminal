@@ -13,6 +13,8 @@ import fcntl
 import os
 import pty
 import tty
+import time
+import selectors
 import termios
 
 TCGETS2 = 0x802C542A
@@ -192,7 +194,6 @@ class SerialPort():
             self.name = "/dev/stdin"
         else:
             self.name = name
-        self.filedes = None
         self.device = None
         self.termios = Termios2()
         self._master_tty_path = None
@@ -201,12 +202,37 @@ class SerialPort():
         self._slave_pty = None
         self.pty = use_pty
 
+        self._speed = 19200
+
         self._open()
+        if self.pty:
+            self.set_speed(4000000)
+
+    @property
+    def speed(self):
+        """ the current ospeed """
+        return self._speed
 
     @property
     def filedes(self):
         """ the file descriptor we should be doing i/o to """
         return self._master_pty
+
+    @property
+    def timeout(self):
+        """ return the default timeout """
+        return 1 / 60
+
+    @property
+    def tty_path(self):
+        """ get the path for the tty device node """
+
+        return self._master_tty_path
+
+    @property
+    def pty_path(self):
+        """ Return the slave pty path if this is a pty """
+        return self._slave_tty_path
 
     def _open(self):
         """ Open our terminal and set it up as self.device / self.filedes """
@@ -220,22 +246,71 @@ class SerialPort():
                                                     (master,))
                 self._slave_tty_path = os.readlink("/proc/self/fd/%d" %
                                                    (slave,))
+                self.name = self.pty_path
             else:
                 self._master_tty_path = self.name
                 self._master_pty = os.open(self.name, os.O_RDWR)
 
         self.device = os.fdopen(self.filedes, "w+b", buffering=0)
 
-    @property
-    def tty_path(self):
-        """ get the path for the tty device node """
 
-        return self._master_tty_path
+    def read(self, count=None, timeout=None):
+        """ read from our port """
 
-    @property
-    def pty_path(self):
-        """ Return the slave pty path if this is a pty """
-        return self._slave_tty_path
+        selector = selectors.PollSelector()
+        selector.register(self.filedes, selectors.EVENT_READ)
+        ret = bytes()
+
+        while count is None or count > 0:
+            before = time.time()
+            events = selector.select(timeout=timeout)
+
+            if not events:
+                raise TimeoutError(ret)
+
+            for key, mask in events:
+                if mask & selectors.EVENT_READ:
+                    b = os.read(key.fd, 1)
+                    ret += b
+
+            after = time.time()
+            if not timeout is None:
+                timeout -= after - before
+
+        return ret
+
+    def write(self, buf, timeout=None):
+        """ write to our serial port """
+
+        buflist = list(buf)
+        selector = selectors.PollSelector()
+        selector.register(self.filedes, selectors.EVENT_WRITE)
+        ret = 0
+
+        while buflist:
+            before = time.time()
+            events = selector.select(timeout)
+
+            if not events:
+                raise TimeoutError(ret)
+
+            for key, mask in events:
+                if mask & selectors.EVENT_WRITE and key.fd == self.filedes:
+                    c = buflist.pop(0)
+                    ret += os.write(key.fd, bytes(c, "UTF-8"))
+
+            after = time.time()
+            if not timeout is None:
+                timeout -= after - before
+
+        return ret
+
+    def get_speed(self):
+        """ get the output speed """
+
+        self.termios.get(self.filedes)
+        self._speed = self.termios.c_ospeed
+        return self.speed
 
     def set_speed(self, speed):
         """ Set the speed """
@@ -284,6 +359,7 @@ class SerialPort():
             self.termios.c_cflag |= BOTHER << IBSHIFT
 
         self.termios.set(self.filedes)
+        self._speed = speed
 
     def getattr(self):
         """ Get our tty's attributes """
