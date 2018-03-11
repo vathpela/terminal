@@ -155,6 +155,8 @@ class Termios2(Structure):
 class SerialPort():
     """ This describes a serial port """
 
+    # pylint: disable=too-many-instance-attributes,invalid-name
+
     baud_table = {
         0:termios.B0,
         50:termios.B50,
@@ -253,6 +255,9 @@ class SerialPort():
 
         self.device = os.fdopen(self.filedes, "w+b", buffering=0)
 
+    def fileno(self):
+        """ supply a fileno for selecting on """
+        return self.filedes
 
     def read(self, count=None, timeout=None):
         """ read from our port """
@@ -272,12 +277,26 @@ class SerialPort():
                 if mask & selectors.EVENT_READ:
                     b = os.read(key.fd, 1)
                     ret += b
+                    if count is not None:
+                        count -= 1
 
             after = time.time()
             if not timeout is None:
                 timeout -= after - before
 
         return ret
+
+    def readline(self, timeout=None):
+        """ read a line from our port """
+        line = ""
+        while True:
+            c = self.read(count=1, timeout=timeout)
+            c = c.decode('utf-8')
+            if c == '\n':
+                break
+            if c != '\r':
+                line += c
+        return line
 
     def write(self, buf, timeout=None):
         """ write to our serial port """
